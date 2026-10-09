@@ -1,63 +1,56 @@
-name: Build LOS Kernel (Peridot)
-on: 
+name: Build Khargosh Kernel (Peridot Android 16)
+on:
   workflow_dispatch:
-      inputs:
-        ref:
-          type: string
-          description: reference head
-          required: false
+    inputs:
+      ref:
+        description: Optional kernel source ref (defaults to sixteen)
+        required: false
+        type: string
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Update Ubuntu
-      shell: bash
-      run: |
-        sudo apt-get update && sudo apt-get upgrade -y
-
-    - name: Setup zram as swap
-      shell: bash
-      run: |
-        sudo swapoff -a
-        sudo rm -f /mnt/swapfile
-        sudo apt-get install -y "linux-modules-extra-$(uname -r)"
-        [ -f /dev/zram0 ] || sudo modprobe zram
-        echo "Waiting 5s for zram module to initialize"
-        sleep 5
-        sudo zramctl --find --algorithm lz4 --size 24576M
-        sudo mkswap /dev/zram0
-        sudo swapon -d --priority 100 /dev/zram0
-        sudo sysctl -w vm.swappiness=180
-        sudo sysctl -w vm.watermark_boost_factor=0
-        sudo sysctl -w vm.watermark_scale_factor=125
-        sudo sysctl -w vm.page-cluster=0
-        sudo sysctl -w vm.min_free_kbytes=131072
-        sleep 1
-        sudo swapon --show
-        sudo zramctl
-
-    - name: Checkout local repository
-      uses: actions/checkout@v7
-      with:
-        path: builder
-
-    - name: Checkout kernel source
-      uses: actions/checkout@v7
-      with:
-        repository: Lu5ck/android_kernel_xiaomi_sm8635
-        path: source
-        ref: lineage-23.2-ksu-susfs
-
-    - name: Build Kernel in Docker (ArchLinux)
-      uses: ./builder/actions/peridot
-      
-    - name: Get datetime
-      id: datetime
-      shell: bash
-      run: echo "datetime=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_OUTPUT
-      
-    - name: Generate Artifact
-      uses: actions/upload-artifact@v7
-      with:
-        name: peridot_ksu_susfs_${{ steps.datetime.outputs.datetime }}
-        path: ${{ github.workspace }}/builder/actions/peridot/AnyKernel3/*
+      - name: Checkout builder
+        uses: actions/checkout@v4
+        with:
+          path: builder
+      - name: Checkout Android 16 kernel source
+        uses: actions/checkout@v4
+        with:
+          repository: sm8635-dev/kernel_xiaomi_sm8635
+          ref: ${{ inputs.ref || 'sixteen' }}
+          path: source
+      - name: Checkout Android 16 device trees
+        uses: actions/checkout@v4
+        with:
+          repository: sm8635-dev/kernel_xiaomi_sm8635-devicetrees
+          ref: sixteen
+          path: source/sm8635-devicetrees
+      - name: Apply requested DPC recalibration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("source/sm8635-devicetrees/qcom/cliffs.dtsi")
+          s = p.read_text()
+          expected = {"dynamic-power-coefficient = <100>;": 3, "dynamic-power-coefficient = <287>;": 4, "dynamic-power-coefficient = <664>;": 1}
+          for line, count in expected.items():
+              actual = s.count(line)
+              if actual != count:
+                  raise SystemExit(f"Expected {count} occurrences of {line!r}, found {actual}; aborting safely")
+          s = s.replace("dynamic-power-coefficient = <100>;", "dynamic-power-coefficient = <123>;")
+          s = s.replace("dynamic-power-coefficient = <287>;", "dynamic-power-coefficient = <261>;")
+          s = s.replace("dynamic-power-coefficient = <664>;", "dynamic-power-coefficient = <624>;")
+          p.write_text(s)
+          PY
+          git -C source/sm8635-devicetrees diff --check
+          git -C source/sm8635-devicetrees diff -- qcom/cliffs.dtsi
+      - name: Build kernel in existing Peridot container
+        uses: ./builder/actions/peridot
+      - name: Package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: khargosh-peridot-android16
+          path: builder/actions/peridot/AnyKernel3/*
+          if-no-files-found: error
