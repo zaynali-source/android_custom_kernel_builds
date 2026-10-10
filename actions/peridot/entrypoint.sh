@@ -92,12 +92,12 @@ extract_tarball /tmp/aosp-clang.tar.gz toolchain
 git config --global --add safe.directory /github/workspace/source
 
 export PATH=$(pwd)/toolchain/bin/:$PATH
-export BUILD_CC="$(pwd)/toolchain/bin/clang"
+export BUILD_CC="$(command -v gcc)"
 export ARCH=arm64
 export SUBARCH=arm64
 export DISABLE_WRAPPER=1
 KERNEL_DEFCONFIG="gki_defconfig vendor/pineapple_GKI.config vendor/peridot_GKI.config"
-KERNEL_CMDLINE="ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- O=out LLVM=1 LLVM_IAS=1"
+KERNEL_CMDLINE="ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- O=out LLVM=1 LLVM_IAS=1 HOSTCC=gcc HOSTCXX=g++"
 make $KERNEL_CMDLINE $KERNEL_DEFCONFIG 
 make $KERNEL_CMDLINE -j$(nproc --all)
 
